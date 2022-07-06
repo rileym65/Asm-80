@@ -819,7 +819,7 @@ int lookupInstruction() {
         i1 = value & 0xff;
         if (evalErrors != 0) flag = 0;
         if ((value & 0xff00) != 0 && (value & 0xff00) != 0xff00) {
-printf("Branch out of range: %04x\n",value);
+          printf("Branch out of range: %04x\n",value);
           }
         c1 = 1;
         }
