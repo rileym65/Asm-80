@@ -799,6 +799,7 @@ int lookupInstruction() {
           i1 = value;
         }
       else if (strcasecmp(opcodes[i][1],"[d]") == 0 && strlen(arg2) == 0) {
+        evalErrors = 0;
         if ((arg1[0] >= 'a' && arg1[0] <= 'z') ||
             (arg1[0] >= 'A' && arg1[0] <= 'Z')) {
           pos = 0;
@@ -811,13 +812,15 @@ int lookupInstruction() {
             }
           temp[pos] = 0;
           if (pass == 1) value = 0;
-            else value = findLabel(temp,&err) - address;
+            else value = findLabel(temp,&err) - (address+2);
           }
         else 
           evaluate(arg1, &value);
         i1 = value & 0xff;
         if (evalErrors != 0) flag = 0;
-        if ((value & 0xff00) != 0 && (value & 0xff00) != 0xff00) flag = 0;
+        if ((value & 0xff00) != 0 && (value & 0xff00) != 0xff00) {
+printf("Branch out of range: %04x\n",value);
+          }
         c1 = 1;
         }
       else if (strcasecmp(opcodes[i][1],"[nn]") == 0) {
@@ -833,7 +836,8 @@ int lookupInstruction() {
           else flag = 0;
         c1 = 1;
         }
-      else if (strcasecmp(opcodes[i][1],"[nnnn]") == 0) {
+      else if (strcasecmp(opcodes[i][1],"[nnnn]") == 0 &&
+               !(arg1[0] == '(' && arg1[strlen(arg1)-1] == ')')) {
         evaluate(arg1, &i1);
         c1 = 2;
         if (evalErrors != 0) flag = 0;
@@ -926,6 +930,7 @@ int lookupInstruction() {
           i2 = value;
         }
       else if (strcasecmp(opcodes[i][2],"[d]") == 0) {
+        evalErrors = 0;
         if ((arg2[0] >= 'a' && arg2[0] <= 'z') ||
             (arg2[0] >= 'A' && arg2[0] <= 'Z')) {
           pos = 0;
@@ -938,13 +943,15 @@ int lookupInstruction() {
             }
           temp[pos] = 0;
           if (pass == 1) value = 0;
-            else value = findLabel(temp,&err) - address;
+            else value = findLabel(temp,&err) - (address+2);
           }
         else 
           evaluate(arg2, &value);
         i2 = value & 0xff;
         if (evalErrors != 0) flag = 0;
-        if ((value & 0xff00) != 0 && (value & 0xff00) != 0xff00) flag = 0;
+        if ((value & 0xff00) != 0 && (value & 0xff00) != 0xff00) {
+          printf("Branch out of range\n");
+          }
         c2 = 1;
         }
       else if (strcasecmp(opcodes[i][2],"[nn]") == 0) {
@@ -960,7 +967,8 @@ int lookupInstruction() {
           else flag = 0;
         c2 = 1;
         }
-      else if (strcasecmp(opcodes[i][2],"[nnnn]") == 0) {
+      else if (strcasecmp(opcodes[i][2],"[nnnn]") == 0 &&
+               !(arg2[0] == '(' && arg2[strlen(arg2)-1] == ')')) {
         evaluate(arg2, &i2);
         c2 = 2;
         if (evalErrors != 0) flag = 0;
@@ -1275,6 +1283,10 @@ int assemblyPass(char* sourceName) {
       *pchar = 0;
       while (strlen(line) > 0 && line[strlen(line)-1] <= ' ')
         line[strlen(line)-1] = 0;
+      }
+    if (strcmp(line,".list") == 0) {
+      showList = -1;
+      strcpy(line,"");
       }
     parse(line);
     if (strlen(label) > 0 || strlen(opcode) > 0) {
