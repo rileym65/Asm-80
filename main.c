@@ -286,12 +286,13 @@ void writeOutput() {
   int  i;
   char buffer[256];
   char tmp[4];
+  if (outCount == 0) return;
   sprintf(buffer,":%04x",outAddress);
   for (i=0; i<outCount; i++) {
     sprintf(tmp," %02x",outBytes[i]);
     strcat(buffer,tmp);
     }
-  fprintf(outFile,"%s\n",buffer);
+  if (pass == 2) fprintf(outFile,"%s\n",buffer);
   outCount = 0;
   outAddress = address;
   }
@@ -326,9 +327,20 @@ void output(byte value) {
 int findLabelNumber(char* name) {
   int i;
   int j;
-  for (i=0; i<numLabels; i++)
-    if (strcasecmp(labelNames[i], name) == 0)
+  if (strcmp(module,"*") != 0) {
+    for (i=0; i<numLabels; i++) {
+      if (strcasecmp(labelNames[i], name) == 0 &&
+          strcasecmp(labelProcs[i], module) == 0) {
+        return i;
+        }
+      }
+    }
+  for (i=0; i<numLabels; i++) {
+    if (strcasecmp(labelNames[i], name) == 0 &&
+        strcasecmp(labelProcs[i], "*") == 0) {
       return i;
+      }
+    }
   return -1;
   }
 
@@ -336,13 +348,27 @@ word findLabel(char* name, char* err) {
   int i;
   int j;
   *err = 0;
-  for (i=0; i<numLabels; i++)
-    if (strcasecmp(labelNames[i], name) == 0) {
+  if (strcmp(module,"*") != 0) {
+    for (i=0; i<numLabels; i++) {
+      if (strcasecmp(labelNames[i], name) == 0 &&
+          strcasecmp(labelProcs[i], module) == 0) {
+        usedLocal = -1;
+        for (j=0; j<numExternals; j++)
+          if (externals[j] == i) usedExternal = j;
+        return labelValues[i];
+        }
+      }
+    }
+
+  for (i=0; i<numLabels; i++) {
+    if (strcasecmp(labelNames[i], name) == 0 &&
+        strcasecmp(labelProcs[i], "*") == 0) {
       for (j=0; j<numExternals; j++)
-        if (strcasecmp(externals[j], name) == 0)
-          usedExternal = j;
+        if (externals[j] == i) usedExternal = j;
       return labelValues[i];
       }
+    }
+
   if (pass == 1) return 0;
   *err = 0xff;
   printf("Error: Label not found: %s\n",name);
@@ -354,7 +380,8 @@ int addLabel(char* name, word value) {
   int i;
   if (pass == 2) return 0;
   for (i=0; i<numLabels; i++)
-    if (strcasecmp(labelNames[i], name) == 0) {
+    if (strcasecmp(labelNames[i], name) == 0 &&
+        strcasecmp(labelProcs[i], module) == 0) {
       printf("Error: Duplicate label: %s\n",name);
       errors++;
       return -1;
@@ -363,15 +390,19 @@ int addLabel(char* name, word value) {
   if (numLabels == 1) {
     labelNames = (char**)malloc(sizeof(char*));
     labelValues = (word*)malloc(sizeof(word));
+    labelProcs = (char**)malloc(sizeof(char*));
     labelLine = (int*)malloc(sizeof(int));
     }
   else {
     labelNames = (char**)realloc(labelNames,sizeof(char*)*numLabels);
     labelValues = (word*)realloc(labelValues,sizeof(word)*numLabels);
     labelLine = (int*)realloc(labelLine,sizeof(int)*numLabels);
+    labelProcs = (char**)realloc(labelProcs,sizeof(char*)*numLabels);
     }
   labelNames[numLabels-1] = (char*)malloc(strlen(name)+1);
+  labelProcs[numLabels-1] = (char*)malloc(strlen(module)+1);
   strcpy(labelNames[numLabels-1], name);
+  strcpy(labelProcs[numLabels-1], module);
   labelValues[numLabels-1] = value;
   labelLine[numLabels-1] = lineCount;
   return 0;
@@ -404,20 +435,13 @@ void setLabel(char* name, word value) {
 void addExternal(char* name) {
   int i;
   if (pass == 2) return;
-  for (i=0; i<numExternals; i++)
-    if (strcasecmp(externals[i], name) == 0) {
-      printf("Error: Duplicate external: %s\n",name);
-      errors++;
-      return;
-      }
   addLabel(name, 0);
   numExternals++;
   if (numExternals == 1)
-    externals = (char**)malloc(sizeof(char*));
+    externals = (int*)malloc(sizeof(int));
   else
-    externals = (char**)realloc(externals,sizeof(char*)*numExternals);
-  externals[numExternals-1] = (char*)malloc(strlen(name)+1);
-  strcpy(externals[numExternals-1], name);
+    externals = (int*)realloc(externals,sizeof(int)*numExternals);
+  externals[numExternals-1] = findLabelNumber(name);
   }
 
 void addDefine(char *def, char* value) {
@@ -508,6 +532,7 @@ char* evaluate(char* expr, word* ret) {
   *ret = 0;
   evalErrors = 0;
   usedExternal = -1;
+  usedLocal = 0;
   if (strcasecmp(expr, "A") == 0 ||
       strcasecmp(expr, "B") == 0 ||
       strcasecmp(expr, "C") == 0 ||
@@ -1063,42 +1088,34 @@ void translateInstruction(int o) {
     }
   if (p == 255) output((x << 6) | (y << 3) | z);
     else output((x << 6) | (p << 4) | (q << 3) | z);
-    if (c1 == 1) output(i1 & 0xff);
-    if (c1 == 2) {
-      if (usedExternal >= 0 && pass == 2) {
-        numReferences++;
-        if (numReferences == 1) {
-          references = (int*)malloc(sizeof(int));
-          referenceAddress = (word*)malloc(sizeof(word));
-          }
-        else {
-          references = (int*)realloc(references,sizeof(int)*numReferences);
-          referenceAddress = (word*)realloc(referenceAddress,sizeof(word)*numReferences);
-          }
-        references[numReferences-1] = usedExternal;
-        referenceAddress[numReferences-1] = address;
-        }
-      output(i1 & 0xff);
-      output((i1 >> 8) & 0xff);
+  if (c1 == 1) output(i1 & 0xff);
+  if (c1 == 2) {
+    if (usedExternal >= 0 && pass == 2) {
+      if (pass == 2) fprintf(outFile,"?%s %04x\n",labelNames[externals[usedExternal]],address);
       }
-    if (c2 == 1) output(i2 & 0xff);
-    if (c2 == 2) {
-      if (usedExternal >= 0 && pass == 2) {
-        numReferences++;
-        if (numReferences == 1) {
-          references = (int*)malloc(sizeof(int));
-          referenceAddress = (word*)malloc(sizeof(word));
-          }
-        else {
-          references = (int*)realloc(references,sizeof(int)*numReferences);
-          referenceAddress = (word*)realloc(referenceAddress,sizeof(word)*numReferences);
-          }
-        references[numReferences-1] = usedExternal;
-        referenceAddress[numReferences-1] = address;
-        }
-      output(i2 & 0xff);
-      output((i2 >> 8) & 0xff);
+    if (usedLocal != 0 && pass == 2) {
+      fixups[numFixups] = address;
+      fixupTypes[numFixups] = 'W';
+      fixupLowOffset[numFixups] = 0;
+      numFixups++;
       }
+    output(i1 & 0xff);
+    output((i1 >> 8) & 0xff);
+    }
+  if (c2 == 1) output(i2 & 0xff);
+  if (c2 == 2) {
+    if (usedExternal >= 0 && pass == 2) {
+      if (pass == 2) fprintf(outFile,"?%s %04x\n",labelNames[externals[usedExternal]],address);
+      }
+    if (usedLocal != 0 && pass == 2) {
+      fixups[numFixups] = address;
+      fixupTypes[numFixups] = 'W';
+      fixupLowOffset[numFixups] = 0;
+      numFixups++;
+      }
+    output(i2 & 0xff);
+    output((i2 >> 8) & 0xff);
+    }
   }
 
 void defReplace(char* line) {
@@ -1274,6 +1291,8 @@ int assemblyPass(char* sourceName) {
   outAddress = 0;
   codeGenerated = 0;
   numDefines = 0;
+  strcpy(module,"*");
+  inProc = 0;
   nests[0] = 'Y';
   numNests = 0;
   while (nextLine(line)) {
@@ -1320,6 +1339,40 @@ int assemblyPass(char* sourceName) {
                 publics = (int*)realloc(publics,sizeof(int)*numPublics);
               publics[numPublics-1] = i;
               }
+            }
+          }
+        else if (strcasecmp(opcode,"proc") == 0) {
+          inProc = -1;
+          strcpy(module, arg1);
+          if (outCount != 0) writeOutput();
+          address = 0;
+          outAddress = 0;
+          if (pass == 1) addLabel(arg1, 0);
+          if (pass == 2) {
+            fprintf(outFile,"{%s\n",arg1);
+            }
+          numFixups = 0;
+          }
+        else if (strcasecmp(opcode,"endp") == 0) {
+          if (inProc == 0) {
+            printf("***ERROR: ENDP encountered outside PROC\n");
+            errors++;
+            }
+          if (outCount != 0) writeOutput();
+          if (pass == 2) {
+            for (i=0; i<numFixups; i++) {
+              if (fixupTypes[i] == 'W')
+                fprintf(outFile,"+%04x\n",fixups[i]);
+              if (fixupTypes[i] == 'H') {
+                if (fixupLowOffset[i] != 0)
+                  fprintf(outFile,"^%04x %02x\n",fixups[i],fixupLowOffset[i]);
+                else
+                  fprintf(outFile,"^%04x\n",fixups[i]);
+                }
+              if (fixupTypes[i] == 'L')
+                fprintf(outFile,"v%04x\n",fixups[i]);
+              }
+            fprintf(outFile,"}\n");
             }
           }
         else if (strcasecmp(opcode,"ds") == 0) {
@@ -1437,7 +1490,6 @@ void assembleFile(char* sourceName) {
   errors = 0;
   numLabels = 0;
   numExternals = 0;
-  numReferences = 0;
   numPublics = 0;
   startAddress = 0xffff;
   pass = 1;
@@ -1452,11 +1504,6 @@ void assembleFile(char* sourceName) {
     if (outBytes > 0) writeOutput();
     if (startAddress != 0xffff)
       fprintf(outFile,"@%04x\n",startAddress);
-    if (numReferences > 0) {
-      for (i=0; i<numReferences; i++) {
-        fprintf(outFile,"?%s %04x\n",externals[references[i]],referenceAddress[i]);
-        }
-      }
     if (numPublics > 0) {
       for (i=0; i<numPublics; i++) {
         fprintf(outFile,"=%s %04x\n",labelNames[publics[i]],labelValues[publics[i]]);
@@ -1488,14 +1535,8 @@ void assembleFile(char* sourceName) {
   for (i=0; i<numLabels; i++) {
     free(labelNames[i]);
     }
-  for (i=0; i<numExternals; i++)
-    free(externals[i]);
   if (numExternals > 0) free(externals);
   if (numPublics > 0) free(publics);
-  if (numReferences > 0) {
-    free(references);
-    free(referenceAddress);
-    }
   if (numLabels > 0) {
     free(labelNames);
     free(labelValues);
