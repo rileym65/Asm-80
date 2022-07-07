@@ -1307,6 +1307,10 @@ int assemblyPass(char* sourceName) {
       showList = -1;
       strcpy(line,"");
       }
+    if (strcmp(line,".sym") == 0) {
+      showSymbols = -1;
+      strcpy(line,"");
+      }
     parse(line);
     if (strlen(label) > 0 || strlen(opcode) > 0) {
       if (fileNumber == 0)
@@ -1514,7 +1518,7 @@ void assembleFile(char* sourceName) {
       printf("\n");
       if (createListFile) fprintf(listFile,"\n");
       for (i=0; i<numLabels; i++) {
-        sprintf(buffer,"%-16s %04x <%05d> \n",labelNames[i],labelValues[i],labelLine[i]);
+        sprintf(buffer,"%-16s %-16s %04x <%05d> \n",labelNames[i],labelProcs[i],labelValues[i],labelLine[i]);
         printf("%s",buffer);
         if (createListFile) fprintf(listFile,"%s",buffer);
         }
